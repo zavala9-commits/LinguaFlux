@@ -45,8 +45,28 @@ const LESSONS_BY_LANG = {
         exercise: { explain: "I am, you are, he/she is.", q: "___ a student.", opts: ["I am", "I is", "I are"], correct: 0 } },
       { id: "en-a1-2", type: "reading", title: "Mi primer email", xp: 18,
         exercise: { passage: "Hi, I'm Alex. I live in London. I work as a designer.", q: "¿Dónde vive Alex?", opts: ["Londres", "París", "Madrid"], correct: 0 } },
-      { id: "en-a1-3", type: "conversation", title: "Conoce a alguien", xp: 20,
+      { id: "en-a1-3", type: "listening", title: "Escucha y responde", xp: 18,
+        exercise: { audioText: "The train leaves at seven in the morning.", q: "¿A qué hora sale el tren?", opts: ["7:00 AM", "7:00 PM", "5:00 AM"], correct: 0 } },
+      { id: "en-a1-4", type: "conversation", title: "Conoce a alguien", xp: 20,
         exercise: { bot: "Hi! I'm Maya. What's your name?", hint: "Di: My name is..." } },
+    ],
+    A2: [
+      { id: "en-a2-1", type: "grammar", title: "Pasado simple", xp: 16,
+        exercise: { explain: "I walked, she watched, they played.", q: "Yesterday I ___ to the park.", opts: ["walked", "walk", "walking"], correct: 0 } },
+      { id: "en-a2-2", type: "listening", title: "Un mensaje de voz", xp: 18,
+        exercise: { audioText: "Can you buy some milk and bread on your way home?", q: "¿Qué le piden comprar?", opts: ["Leche y pan", "Huevos y queso", "Fruta"], correct: 0 } },
+      { id: "en-a2-3", type: "conversation", title: "En el café", xp: 20,
+        exercise: { bot: "Hi, welcome! What would you like to order?", hint: "Di: I'd like a coffee, please." } },
+    ],
+  },
+  fr: {
+    A1: [
+      { id: "fr-a1-1", type: "grammar", title: "Être au présent", xp: 15,
+        exercise: { explain: "Je suis, tu es, il/elle est.", q: "Je ___ étudiant.", opts: ["suis", "es", "est"], correct: 0 } },
+      { id: "fr-a1-2", type: "listening", title: "Écoute et réponds", xp: 18,
+        exercise: { audioText: "Le train part à sept heures du matin.", q: "¿A qué hora sale el tren?", opts: ["7:00", "19:00", "5:00"], correct: 0 } },
+      { id: "fr-a1-3", type: "conversation", title: "Faire connaissance", xp: 20,
+        exercise: { bot: "Salut! Je m'appelle Léa. Et toi?", hint: "Di: Je m'appelle..." } },
     ],
   },
 };
@@ -55,7 +75,41 @@ function getLessons(langId, level) {
   return LESSONS_BY_LANG[langId]?.[level] || [
     { id: `${langId}-${level}-1`, type: "grammar", title: "Gramática esencial", xp: 15,
       exercise: { explain: `Bases del nivel ${level}`, q: "Elige la forma correcta", opts: ["Opción A", "Opción B", "Opción C"], correct: 0 } },
+    { id: `${langId}-${level}-2`, type: "listening", title: "Ejercicio de escucha", xp: 18,
+      exercise: { audioText: "This is a short listening practice sentence.", q: "¿De qué trata el audio?", opts: ["Una práctica de escucha", "Una receta", "El clima"], correct: 0 } },
   ];
+}
+
+// Habla un texto en voz alta usando el navegador (sin API externa, gratis)
+function speak(text, langCode) {
+  if (!("speechSynthesis" in window)) return;
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = langCode || "en-US";
+  utter.rate = 0.95;
+  window.speechSynthesis.speak(utter);
+}
+
+// Hook para usar el micrófono (reconocimiento de voz del navegador)
+function useSpeechRecognition(langCode) {
+  const [listening, setListening] = useState(false);
+  const [supported] = useState(() => "webkitSpeechRecognition" in window || "SpeechRecognition" in window);
+
+  const start = useCallback((onResult) => {
+    const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!Rec) return;
+    const rec = new Rec();
+    rec.lang = langCode || "en-US";
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onstart = () => setListening(true);
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    rec.onresult = (e) => onResult(e.results[0][0].transcript);
+    rec.start();
+  }, [langCode]);
+
+  return { listening, supported, start };
 }
 
 async function callFunction(name, body, token) {
@@ -199,6 +253,7 @@ function App() {
   const [chat, setChat] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [adminStats, setAdminStats] = useState(null);
+  const speechRec = useSpeechRecognition(lang?.code);
 
   useEffect(() => {
     sb.auth.getSession().then(({ data }) => setSession(data.session));
@@ -235,7 +290,10 @@ function App() {
 
   const openLesson = (lesson) => {
     setActiveLesson(lesson); setSelected(null); setCorrect(null);
-    if (lesson.type === "conversation") setChat([{ role: "bot", text: lesson.exercise.bot }]);
+    if (lesson.type === "conversation") {
+      setChat([{ role: "bot", text: lesson.exercise.bot }]);
+      setTimeout(() => speak(lesson.exercise.bot, lang.code), 300);
+    }
     setView("lesson");
   };
 
@@ -264,6 +322,7 @@ function App() {
     });
     const reply = res.reply || "¡Bien! Sigue practicando. (Modo demo: configura GROQ_API_KEY en el servidor para respuestas reales)";
     setChat(c => [...c, { role: "bot", text: reply }]);
+    speak(reply, lang.code);
   };
 
   const openAdmin = async () => {
@@ -351,7 +410,31 @@ function App() {
           )}
           {activeLesson.type === "reading" && (
             <div>
-              <div className="bg-[#1C1C1F] rounded-2xl p-4 border border-white/10 mb-4 text-[14px]">{activeLesson.exercise.passage}</div>
+              <div className="bg-[#1C1C1F] rounded-2xl p-4 border border-white/10 mb-4 text-[14px]">
+                {activeLesson.exercise.passage}
+                <button onClick={() => speak(activeLesson.exercise.passage, lang.code)}
+                  className="ml-2 align-middle text-[16px]" title="Escuchar">🔊</button>
+              </div>
+              <h3 className="font-semibold mb-3">{activeLesson.exercise.q}</h3>
+              <div className="grid gap-2">
+                {activeLesson.exercise.opts.map((o, i) => (
+                  <button key={i} onClick={() => selected === null && answer(i)}
+                    className={`h-12 rounded-xl border text-left px-4 ${
+                      correct !== null && i === activeLesson.exercise.correct ? "bg-[#CCFF00] text-black border-[#CCFF00]" :
+                      selected === i ? "bg-white/10 border-white/20" : "bg-[#1C1C1F] border-white/10"}`}>
+                    {o}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {activeLesson.type === "listening" && (
+            <div>
+              <div className="bg-[#1C1C1F] rounded-2xl p-6 border border-white/10 mb-4 text-center">
+                <button onClick={() => speak(activeLesson.exercise.audioText, lang.code)}
+                  className="w-16 h-16 rounded-full bg-[#CCFF00] text-black text-[26px] grid place-items-center mx-auto">▶️</button>
+                <p className="text-[11px] text-white/40 mt-2">Toca para escuchar el audio</p>
+              </div>
               <h3 className="font-semibold mb-3">{activeLesson.exercise.q}</h3>
               <div className="grid gap-2">
                 {activeLesson.exercise.opts.map((o, i) => (
@@ -370,15 +453,31 @@ function App() {
               <div className="space-y-2 mb-4">
                 {chat.map((m, i) => (
                   <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                    <div className={`max-w-[75%] rounded-2xl px-4 py-2 text-[13px] ${m.role === "user" ? "bg-[#7C3AED]" : "bg-[#1C1C1F] border border-white/10"}`}>{m.text}</div>
+                    <div className={`max-w-[75%] rounded-2xl px-4 py-2 text-[13px] flex items-center gap-2 ${m.role === "user" ? "bg-[#7C3AED]" : "bg-[#1C1C1F] border border-white/10"}`}>
+                      {m.text}
+                      {m.role === "bot" && (
+                        <button onClick={() => speak(m.text, lang.code)} className="text-[13px]" title="Escuchar">🔊</button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
+              {activeLesson.exercise.hint && (
+                <p className="text-[11px] text-white/40 mb-2">💡 {activeLesson.exercise.hint}</p>
+              )}
               <div className="flex gap-2">
                 <input value={chatInput} onChange={e => setChatInput(e.target.value)}
                   onKeyDown={e => e.key === "Enter" && sendChat()}
-                  placeholder="Escribe tu respuesta..."
+                  placeholder="Escribe o usa el micrófono..."
                   className="flex-1 h-12 rounded-xl bg-[#1C1C1F] border border-white/10 px-4 outline-none" />
+                {speechRec.supported && (
+                  <Button
+                    onClick={() => speechRec.start((text) => setChatInput(text))}
+                    className={`px-4 ${speechRec.listening ? "bg-red-500 text-white" : "bg-white/10 text-white"}`}
+                    title="Hablar">
+                    {speechRec.listening ? "🔴" : "🎤"}
+                  </Button>
+                )}
                 <Button onClick={sendChat} className="bg-[#CCFF00] text-black px-5">Enviar</Button>
               </div>
             </div>
